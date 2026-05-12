@@ -15,7 +15,8 @@ Fluent_ML_Thermo-fluid coupling_Reverse optimization对一个简单的圆柱绕�
 | MLP | Pressure (Pa) | 0.2202 | 2.9623e+05 | 21.7856 | -0.344093 |
 
 <img width="563" height="150" alt="feature_importance" src="https://github.com/user-attachments/assets/a2e14f1d-23f9-4879-ad2d-5fb040ea6914" />
-
+<img width="562.5" height="487.5" alt="pred_vs_true" src="https://github.com/user-attachments/assets/eccc8633-a9d2-4fab-89c4-ea9f496675da" />
 <img width="563" height="375" alt="field_comparison" src="https://github.com/user-attachments/assets/e724c822-f6de-48f2-bb8d-d4c7abf34fb5" />
-![Uploading pred_vs_true.png…]()
+
+
 
