@@ -12,6 +12,7 @@
   [MLP Temperature (K)]  耗时: 0.2418s | RMSE: 7.8918e+03 | NRMSE: 467.0946% | R²: -241.440387
   [MLP Pressure (Pa)]  耗时: 0.2202s | RMSE: 2.9623e+05 | NRMSE: 21.7856% | R²: -0.344093
   更新后
+  问题出在y_test没有做标准化也就是yv_test_s = scaler_yv.transform(yv_test.values.reshape(-1,1)).ravel()这一步没有做
   [MLP Velocity (m/s)]  耗时: 0.7754s | RMSE: 6.9867e-04 | NRMSE: 0.2957% | R²: 0.999679
   [MLP Temperature (K)]  耗时: 0.2748s | RMSE: 2.0182e-01 | NRMSE: 0.2691% | R²: 0.999920
   [MLP Pressure (Pa)]  耗时: 0.2289s | RMSE: 6.1423e+00 | NRMSE: 0.2264% | R²: 0.999855
