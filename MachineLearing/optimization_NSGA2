@@ -2,338 +2,279 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import time
-import joblib
-from sklearn.model_selection import train_test_split
-from sklearn.metrics import mean_squared_error, r2_score
+from sklearn.model_selection import cross_val_score, KFold
 from sklearn.ensemble import RandomForestRegressor
-from sklearn.neural_network import MLPRegressor
-from sklearn.preprocessing import StandardScaler
+from sklearn.metrics import r2_score
 import lightgbm as lgb
+from pymoo.algorithms.moo.nsga2 import NSGA2
+from pymoo.core.problem import Problem
+from pymoo.optimize import minimize
+from pymoo.operators.crossover.sbx import SBX
+from pymoo.operators.mutation.pm import PM
+from pymoo.operators.sampling.rnd import FloatRandomSampling
 
 # ========= 1. 配置 =========
-DATA_DIR     = r"D:\VScode\project\2026\demo1\2026-4-24\py\data"
-VELOCITIES   = [0.001, 0.002, 0.005, 0.01, 0.02, 0.05, 0.1]
-TEMPERATURES = [293.15, 303.15, 313.15, 323.15, 353.15]
+DATA_DIR    = r"D:\VScode\project\2026\demo1\2026-4-5\project_data\data"
+SUMMARY_CSV = f"{DATA_DIR}\\summary.csv"
 
-# ========= 2. 读取全局场数据 =========
-dfs = []
-for v in VELOCITIES:
-    for T in TEMPERATURES:
-        fname = f"v{v:.4f}_T{T:.1f}.csv"
-        fpath = f"{DATA_DIR}\\{fname}"
-        try:
-            df = pd.read_csv(fpath, sep=",", skiprows=1, header=None)
+V_MIN, V_MAX = 0.001, 0.1      # m/s
+T_MIN, T_MAX = 293.15, 353.15  # K
 
-            # Fluent导出列顺序: cellnumber x x y y vel_mag temperature pressure
-            # 有两列重复的x/y坐标，取第一组
-            df.columns = [
-                "cellnumber", "x", "y", "x2", "y2",
-                "vel_mag", "temperature", "pressure"
-            ]
+# ========= 2. 读取summary =========
+df = pd.read_csv(SUMMARY_CSV)
+print(f"summary数据: {len(df)} 个工况")
+print(df.to_string(index=False))
 
-            original_count = len(df)
-            df = df.replace([np.inf, -np.inf], np.nan).dropna()
-            dropped   = original_count - len(df)
-            drop_rate = dropped / original_count
+X      = df[["v_inlet", "T_inlet"]].values
+y_vmax = df["vmax"].values
+y_tmax = df["tmax"].values
 
-            print(f"工况 v={v}, T={T}: {len(df)} 个点, "
-                  f"清洗 {dropped} 个 ({drop_rate:.2%})")
-            if drop_rate > 0.05:
-                print(f"  ❗ 警告: 剔除比例过高 ({drop_rate:.2%})")
+# ========= 3. 训练工况级代理模型（5折CV） =========
+def train_and_cv(model, X, y, name, k=5):
+    """训练 + K折交叉验证，样本少时用全量CV代替train/test split"""
+    kf     = KFold(n_splits=k, shuffle=True, random_state=42)
+    scores = cross_val_score(model, X, y, cv=kf, scoring="r2")
+    print(f"  [{name}] CV R²: {scores.mean():.4f} ± {scores.std():.4f}  "
+          f"(各折: {np.round(scores, 4)})")
+    model.fit(X, y)   # 最终用全量数据训练
+    return model
 
-            df["v_inlet"] = v
-            df["T_inlet"] = T
-            df = df.drop(columns=["cellnumber", "x2", "y2"])
-            dfs.append(df)
+print("\n" + "="*50)
+print("===== 工况代理模型训练 (5折CV, 35个样本) =====")
+print("="*50)
 
-        except FileNotFoundError:
-            print(f"  ⚠ 文件不存在，跳过: {fname}")
+print("\n[目标: vmax]")
+rf_vmax  = train_and_cv(
+    RandomForestRegressor(n_estimators=300, max_depth=10,
+                          n_jobs=-1, random_state=42),
+    X, y_vmax, "RF-vmax")
+lgb_vmax = train_and_cv(
+    lgb.LGBMRegressor(n_estimators=300, learning_rate=0.05,
+                      num_leaves=31, random_state=42, verbose=-1),
+    X, y_vmax, "LGB-vmax")
 
-data = pd.concat(dfs, ignore_index=True)
-print("-" * 40)
-print(f"数据合并完成，总样本数: {len(data)}")
+print("\n[目标: tmax]")
+rf_tmax  = train_and_cv(
+    RandomForestRegressor(n_estimators=300, max_depth=10,
+                          n_jobs=-1, random_state=42),
+    X, y_tmax, "RF-tmax")
+lgb_tmax = train_and_cv(
+    lgb.LGBMRegressor(n_estimators=300, learning_rate=0.05,
+                      num_leaves=31, random_state=42, verbose=-1),
+    X, y_tmax, "LGB-tmax")
 
-# ========= 3. 特征 & 标签 =========
-FEATURES = ["x", "y", "v_inlet", "T_inlet"]
-X      = data[FEATURES]
-y_vel  = data["vel_mag"]
-y_temp = data["temperature"]
-y_pres = data["pressure"]
+# 根据CV R²自动选择更好的模型
+def pick_better(m1, m2, name1, name2, X, y):
+    """比较两个已训练模型在全量数据上的R²，返回更好的那个"""
+    r2_1 = r2_score(y, m1.predict(X))
+    r2_2 = r2_score(y, m2.predict(X))
+    if r2_1 >= r2_2:
+        print(f"  → 选择 {name1} (R²={r2_1:.4f} vs {name2} R²={r2_2:.4f})")
+        return m1, name1
+    else:
+        print(f"  → 选择 {name2} (R²={r2_2:.4f} vs {name1} R²={r2_1:.4f})")
+        return m2, name2
 
-# ========= 4. 划分数据 =========
-X_train, X_test, \
-yv_train, yv_test, \
-yt_train, yt_test, \
-yp_train, yp_test = train_test_split(
-    X, y_vel, y_temp, y_pres,
-    test_size=0.2, random_state=42
+print("\n[自动选择代理模型]")
+surrogate_vmax, sname_vmax = pick_better(
+    rf_vmax, lgb_vmax, "RF", "LGB", X, y_vmax)
+surrogate_tmax, sname_tmax = pick_better(
+    rf_tmax, lgb_tmax, "RF", "LGB", X, y_tmax)
+
+print(f"\n>>> vmax代理: {sname_vmax}  |  tmax代理: {sname_tmax}")
+
+# ========= 4. 响应面可视化（验证代理模型合理性） =========
+v_grid = np.linspace(V_MIN, V_MAX, 60)
+T_grid = np.linspace(T_MIN, T_MAX, 60)
+VV, TT = np.meshgrid(v_grid, T_grid)
+grid_pts = np.column_stack([VV.ravel(), TT.ravel()])
+
+pred_vmax_grid = surrogate_vmax.predict(grid_pts).reshape(60, 60)
+pred_tmax_grid = surrogate_tmax.predict(grid_pts).reshape(60, 60)
+
+fig, axes = plt.subplots(1, 2, figsize=(14, 5))
+fig.suptitle("Surrogate Model Response Surface", fontsize=13)
+
+ax = axes[0]
+cf = ax.contourf(VV, TT, pred_vmax_grid, levels=25, cmap="coolwarm")
+plt.colorbar(cf, ax=ax, label="vmax (m/s)")
+ax.scatter(df["v_inlet"], df["T_inlet"], c="white", s=40,
+           edgecolors="black", zorder=5, label="CFD samples")
+ax.set_xlabel("v_inlet (m/s)")
+ax.set_ylabel("T_inlet (K)")
+ax.set_title(f"Predicted vmax  [{sname_vmax}]")
+ax.legend()
+
+ax = axes[1]
+cf = ax.contourf(VV, TT, pred_tmax_grid, levels=25, cmap="jet")
+plt.colorbar(cf, ax=ax, label="tmax (K)")
+ax.scatter(df["v_inlet"], df["T_inlet"], c="white", s=40,
+           edgecolors="black", zorder=5, label="CFD samples")
+ax.set_xlabel("v_inlet (m/s)")
+ax.set_ylabel("T_inlet (K)")
+ax.set_title(f"Predicted tmax  [{sname_tmax}]")
+ax.legend()
+
+plt.tight_layout()
+plt.savefig(f"{DATA_DIR}\\response_surface.png", dpi=150)
+plt.show()
+
+# ========= 5. 定义多目标优化问题 =========
+class CoolingOptProblem(Problem):
+    """
+    设计变量: x[0]=v_inlet (m/s), x[1]=T_inlet (K)
+    目标函数: 最小化 vmax 和 tmax（两个都越小越好）
+    约束:     无硬约束，边界由 xl/xu 控制
+    """
+    def __init__(self, model_vmax, model_tmax):
+        super().__init__(
+            n_var=2,
+            n_obj=2,
+            n_ieq_constr=0,
+            xl=np.array([V_MIN, T_MIN]),
+            xu=np.array([V_MAX, T_MAX])
+        )
+        self.model_vmax = model_vmax
+        self.model_tmax = model_tmax
+
+    def _evaluate(self, x, out, *args, **kwargs):
+        f1 = self.model_vmax.predict(x)
+        f2 = self.model_tmax.predict(x)
+        out["F"] = np.column_stack([f1, f2])
+
+problem = CoolingOptProblem(surrogate_vmax, surrogate_tmax)
+
+# ========= 6. 运行 NSGA-II =========
+print("\n" + "="*50)
+print("===== NSGA-II 多目标优化 =====")
+print("="*50)
+
+algorithm = NSGA2(
+    pop_size=100,
+    sampling=FloatRandomSampling(),
+    crossover=SBX(prob=0.9, eta=15),
+    mutation=PM(eta=20),
+    eliminate_duplicates=True
 )
-print(f"训练集: {len(X_train)}  测试集: {len(X_test)}")
 
-# ========= 5. 评估函数 =========
-# 用于存储所有指标，最后汇总输出
-metrics_records = []
+t0  = time.time()
+res = minimize(
+    problem,
+    algorithm,
+    termination=("n_gen", 200),
+    seed=42,
+    verbose=True
+)
+print(f"\nNSGA-II 耗时: {time.time()-t0:.2f}s")
+print(f"Pareto前沿解的数量: {len(res.X)}")
 
-def evaluate(model, X_test, y_test, model_name, quantity_name, scaler_y=None):
-    """
-    评估模型并返回预测值与真实值（原始量纲）。
+# ========= 7. 整理Pareto结果 =========
+pareto_X = res.X   # shape: (n_pareto, 2)
+pareto_F = res.F   # shape: (n_pareto, 2)
 
-    修复说明：
-        原版对 y_test 也做了 inverse_transform，但传入时 y_test 已是原始量纲，
-        重复反归一化会导致 R² 严重失真（出现 -300 等异常值）。
-        修复：只对 y_pred（模型输出的归一化预测）做反变换，y_test 保持原样。
-    """
-    t0     = time.time()
-    y_pred = model.predict(X_test)
-    t1     = time.time()
-    infer_time = t1 - t0
+pareto_df = pd.DataFrame({
+    "v_inlet":   pareto_X[:, 0],
+    "T_inlet":   pareto_X[:, 1],
+    "vmax_pred": pareto_F[:, 0],
+    "tmax_pred": pareto_F[:, 1],
+})
+pareto_df = pareto_df.sort_values("tmax_pred").reset_index(drop=True)
 
-    # ✅ 修复：只反归一化 y_pred，y_test 本身已是原始量纲，无需处理
-    if scaler_y is not None:
-        y_pred = scaler_y.inverse_transform(
-                     y_pred.reshape(-1, 1)).ravel()
+print("\nPareto前沿（按tmax排序，前10条）:")
+print(pareto_df.head(10).to_string(index=False))
+pareto_df.to_csv(f"{DATA_DIR}\\pareto_results.csv", index=False)
+print(f"\nPareto结果已保存: {DATA_DIR}\\pareto_results.csv")
 
-    y_true = np.array(y_test)
+# ========= 8. 推荐设计点 =========
+idx_min_tmax = int(np.argmin(pareto_F[:, 1]))
+idx_min_vmax = int(np.argmin(pareto_F[:, 0]))
 
-    rmse  = np.sqrt(mean_squared_error(y_true, y_pred))
-    r2    = r2_score(y_true, y_pred)
-    nrmse = rmse / (y_true.max() - y_true.min())
+# 折中：归一化后距离原点最近
+F_norm       = (pareto_F - pareto_F.min(axis=0)) / \
+               (pareto_F.max(axis=0) - pareto_F.min(axis=0) + 1e-12)
+idx_balanced = int(np.argmin(np.linalg.norm(F_norm, axis=1)))
 
-    print(f"  [{model_name} | {quantity_name}]  "
-          f"耗时: {infer_time:.4f}s | "
-          f"RMSE: {rmse:.4e} | NRMSE: {nrmse:.4%} | R²: {r2:.6f}")
+recommend = {
+    "最低温度 (Min tmax)":  idx_min_tmax,
+    "最低速度 (Min vmax)":  idx_min_vmax,
+    "折中方案 (Balanced)":  idx_balanced,
+}
 
-    # 记录指标
-    metrics_records.append({
-        "Model":       model_name,
-        "Quantity":    quantity_name,
-        "RMSE":        rmse,
-        "NRMSE":       nrmse,
-        "R2":          r2,
-        "Infer_Time_s": infer_time,
-    })
+print("\n" + "="*50)
+print("推荐设计点汇总")
+print("="*50)
+for label, idx in recommend.items():
+    v  = pareto_X[idx, 0]
+    T  = pareto_X[idx, 1]
+    vm = pareto_F[idx, 0]
+    tm = pareto_F[idx, 1]
+    print(f"\n【{label}】")
+    print(f"  v_inlet  = {v:.5f} m/s")
+    print(f"  T_inlet  = {T:.2f} K  ({T-273.15:.2f} ℃)")
+    print(f"  vmax预测 = {vm:.6f} m/s")
+    print(f"  tmax预测 = {tm:.4f} K  ({tm-273.15:.2f} ℃)")
 
-    return y_pred, y_true
+# ========= 9. 可视化 =========
+fig, axes = plt.subplots(1, 3, figsize=(18, 5))
+fig.suptitle("NSGA-II Multi-Objective Optimization Results", fontsize=13)
 
-# ========= 6. Random Forest =========
-print("\n" + "="*45)
-print("===== Random Forest =====")
-print("="*45)
+# 9.1 目标空间 Pareto前沿
+ax = axes[0]
+ax.scatter(pareto_F[:, 0], pareto_F[:, 1],
+           c="steelblue", s=15, label="Pareto front")
+# 原始CFD样本在代理模型上的预测值
+f1_cfd = surrogate_vmax.predict(X)
+f2_cfd = surrogate_tmax.predict(X)
+ax.scatter(f1_cfd, f2_cfd, c="red", s=50, marker="x",
+           zorder=5, label="CFD samples")
+# 标出三个推荐点
+colors_rec = {"最低温度": "red", "最低速度": "blue", "折中方案": "green"}
+for (label, idx), color in zip(recommend.items(), ["red", "blue", "green"]):
+    ax.scatter(pareto_F[idx, 0], pareto_F[idx, 1],
+               c=color, s=100, zorder=6,
+               label=label.split(" ")[0])
+ax.set_xlabel("vmax (m/s)")
+ax.set_ylabel("tmax (K)")
+ax.set_title("Pareto Front (Objective Space)")
+ax.legend(fontsize=8)
 
-rf_vel  = RandomForestRegressor(n_estimators=200, max_depth=15,
-                                 n_jobs=-1, random_state=42)
-rf_temp = RandomForestRegressor(n_estimators=200, max_depth=15,
-                                 n_jobs=-1, random_state=42)
-rf_pres = RandomForestRegressor(n_estimators=200, max_depth=15,
-                                 n_jobs=-1, random_state=42)
+# 9.2 设计空间分布（颜色=tmax）
+ax = axes[1]
+sc = ax.scatter(pareto_X[:, 0], pareto_X[:, 1],
+                c=pareto_F[:, 1], cmap="jet", s=15)
+plt.colorbar(sc, ax=ax, label="tmax (K)")
+ax.scatter(df["v_inlet"], df["T_inlet"], c="red", s=50,
+           marker="x", zorder=5, label="CFD samples")
+for (label, idx), color in zip(recommend.items(), ["red", "blue", "green"]):
+    ax.scatter(pareto_X[idx, 0], pareto_X[idx, 1],
+               c=color, s=120, zorder=6, marker="*")
+ax.set_xlabel("v_inlet (m/s)")
+ax.set_ylabel("T_inlet (K)")
+ax.set_title("Pareto Solutions (Design Space)")
+ax.legend(fontsize=8)
 
-total_t = time.time()
-for model, ytr, name in [
-    (rf_vel,  yv_train, "RF-Velocity"),
-    (rf_temp, yt_train, "RF-Temperature"),
-    (rf_pres, yp_train, "RF-Pressure"),
-]:
-    t0 = time.time()
-    print(f"  训练 {name}...")
-    model.fit(X_train, ytr)
-    print(f"  训练耗时: {time.time()-t0:.2f}s")
-print(f"RF 总训练耗时: {time.time()-total_t:.2f}s\n")
-
-rv_pred, yv_true = evaluate(rf_vel,  X_test, yv_test, "RF", "Velocity (m/s)")
-rt_pred, yt_true = evaluate(rf_temp, X_test, yt_test, "RF", "Temperature (K)")
-rp_pred, yp_true = evaluate(rf_pres, X_test, yp_test, "RF", "Pressure (Pa)")
-
-# ========= 7. LightGBM =========
-print("\n" + "="*45)
-print("===== LightGBM =====")
-print("="*45)
-
-lgb_vel  = lgb.LGBMRegressor(n_estimators=500, learning_rate=0.05,
-                               num_leaves=63, n_jobs=-1,
-                               random_state=42, verbose=-1)
-lgb_temp = lgb.LGBMRegressor(n_estimators=500, learning_rate=0.05,
-                               num_leaves=63, n_jobs=-1,
-                               random_state=42, verbose=-1)
-lgb_pres = lgb.LGBMRegressor(n_estimators=500, learning_rate=0.05,
-                               num_leaves=63, n_jobs=-1,
-                               random_state=42, verbose=-1)
-
-total_t = time.time()
-for model, ytr, name in [
-    (lgb_vel,  yv_train, "LGB-Velocity"),
-    (lgb_temp, yt_train, "LGB-Temperature"),
-    (lgb_pres, yp_train, "LGB-Pressure"),
-]:
-    t0 = time.time()
-    print(f"  训练 {name}...")
-    model.fit(X_train, ytr)
-    print(f"  训练耗时: {time.time()-t0:.2f}s")
-print(f"LightGBM 总训练耗时: {time.time()-total_t:.2f}s\n")
-
-lv_pred, _ = evaluate(lgb_vel,  X_test, yv_test, "LightGBM", "Velocity (m/s)")
-lt_pred, _ = evaluate(lgb_temp, X_test, yt_test, "LightGBM", "Temperature (K)")
-lp_pred, _ = evaluate(lgb_pres, X_test, yp_test, "LightGBM", "Pressure (Pa)")
-
-# ========= 8. MLP =========
-print("\n" + "="*45)
-print("===== MLP =====")
-print("="*45)
-
-# MLP 对量纲敏感，X 和每个 y 都做标准化
-scaler_X  = StandardScaler()
-scaler_yv = StandardScaler()
-scaler_yt = StandardScaler()
-scaler_yp = StandardScaler()
-
-X_train_s  = scaler_X.fit_transform(X_train)
-X_test_s   = scaler_X.transform(X_test)
-yv_train_s = scaler_yv.fit_transform(yv_train.values.reshape(-1,1)).ravel()
-yt_train_s = scaler_yt.fit_transform(yt_train.values.reshape(-1,1)).ravel()
-yp_train_s = scaler_yp.fit_transform(yp_train.values.reshape(-1,1)).ravel()
-
-mlp_vel  = MLPRegressor(hidden_layer_sizes=(256, 256, 128, 64),
-                         activation="relu", solver="adam",
-                         learning_rate_init=1e-3, max_iter=1000,
-                         early_stopping=True, validation_fraction=0.1,
-                         n_iter_no_change=30, random_state=42, verbose=False)
-mlp_temp = MLPRegressor(hidden_layer_sizes=(256, 256, 128, 64),
-                         activation="relu", solver="adam",
-                         learning_rate_init=1e-3, max_iter=1000,
-                         early_stopping=True, validation_fraction=0.1,
-                         n_iter_no_change=30, random_state=42, verbose=False)
-mlp_pres = MLPRegressor(hidden_layer_sizes=(256, 256, 128, 64),
-                         activation="relu", solver="adam",
-                         learning_rate_init=1e-3, max_iter=1000,
-                         early_stopping=True, validation_fraction=0.1,
-                         n_iter_no_change=30, random_state=42, verbose=False)
-
-total_t = time.time()
-for model, ytr_s, name in [
-    (mlp_vel,  yv_train_s, "MLP-Velocity"),
-    (mlp_temp, yt_train_s, "MLP-Temperature"),
-    (mlp_pres, yp_train_s, "MLP-Pressure"),
-]:
-    t0 = time.time()
-    print(f"  训练 {name}...")
-    model.fit(X_train_s, ytr_s)
-    print(f"  训练耗时: {time.time()-t0:.2f}s  实际迭代: {model.n_iter_} 轮")
-print(f"MLP 总训练耗时: {time.time()-total_t:.2f}s\n")
-
-# ✅ 传入 scaler_y 仅用于反归一化 y_pred；y_test 原始量纲，evaluate 内不再对其反变换
-mv_pred, yv_mlp = evaluate(mlp_vel,  X_test_s, yv_test, "MLP", "Velocity (m/s)",  scaler_yv)
-mt_pred, yt_mlp = evaluate(mlp_temp, X_test_s, yt_test, "MLP", "Temperature (K)", scaler_yt)
-mp_pred, yp_mlp = evaluate(mlp_pres, X_test_s, yp_test, "MLP", "Pressure (Pa)",   scaler_yp)
-
-# ========= 9. 汇总指标 → 打印 + 保存 CSV =========
-print("\n" + "="*70)
-print("===== 模型评估汇总 =====")
-print("="*70)
-
-metrics_df = pd.DataFrame(metrics_records, columns=[
-    "Model", "Quantity", "RMSE", "NRMSE", "R2", "Infer_Time_s"
-])
-
-# 格式化打印
-print(metrics_df.to_string(
-    index=False,
-    float_format=lambda x: f"{x:.6f}"
-))
-
-csv_path = f"{DATA_DIR}\\model_metrics_summary.csv"
-metrics_df.to_csv(csv_path, index=False, encoding="utf-8-sig")
-print(f"\n✅ 指标汇总已保存至: {csv_path}")
-
-# ========= 10. 特征重要性（RF） =========
-fig, axes = plt.subplots(1, 3, figsize=(15, 4))
-fig.suptitle("RF Feature Importance", fontsize=13)
-
-for ax, model, title in [
-    (axes[0], rf_vel,  "Velocity Model"),
-    (axes[1], rf_temp, "Temperature Model"),
-    (axes[2], rf_pres, "Pressure Model"),
-]:
-    imp     = model.feature_importances_
-    indices = np.argsort(imp)[::-1]
-    ax.bar(range(len(imp)), imp[indices], color="steelblue")
-    ax.set_xticks(range(len(imp)))
-    ax.set_xticklabels(np.array(FEATURES)[indices], rotation=30)
-    ax.set_ylabel("Importance")
-    ax.set_title(title)
+# 9.3 推荐点标注
+ax = axes[2]
+ax.scatter(pareto_F[:, 0], pareto_F[:, 1],
+           c="lightgray", s=12, label="Pareto front")
+for (label, idx), color in zip(recommend.items(), ["red", "blue", "green"]):
+    ax.scatter(pareto_F[idx, 0], pareto_F[idx, 1],
+               c=color, s=100, zorder=5,
+               label=f"{label.split(' ')[0]}")
+    ax.annotate(
+        f"v={pareto_X[idx,0]:.4f}\nT={pareto_X[idx,1]:.1f}K",
+        xy=(pareto_F[idx, 0], pareto_F[idx, 1]),
+        xytext=(8, 8), textcoords="offset points",
+        fontsize=7,
+        arrowprops=dict(arrowstyle="->", lw=0.8)
+    )
+ax.set_xlabel("vmax (m/s)")
+ax.set_ylabel("tmax (K)")
+ax.set_title("Recommended Solutions")
+ax.legend(fontsize=8)
 
 plt.tight_layout()
-plt.savefig(f"{DATA_DIR}\\feature_importance.png", dpi=150)
+plt.savefig(f"{DATA_DIR}\\pareto_front.png", dpi=150)
 plt.show()
 
-# ========= 11. 三模型 × 三物理量 预测vs真实 =========
-fig, axes = plt.subplots(3, 3, figsize=(15, 13))
-fig.suptitle("Predicted vs True  —  RF / LightGBM / MLP", fontsize=14)
-
-plot_cfg = [
-    (rv_pred, lv_pred, mv_pred, yv_true, yv_mlp, "Velocity (m/s)",  "darkorange"),
-    (rt_pred, lt_pred, mt_pred, yt_true, yt_mlp, "Temperature (K)", "steelblue"),
-    (rp_pred, lp_pred, mp_pred, yp_true, yp_mlp, "Pressure (Pa)",   "seagreen"),
-]
-row_labels = ["RF", "LightGBM", "MLP"]
-
-for col, (rp, lp, mp, y_tr, y_mlp, label, color) in enumerate(plot_cfg):
-    for row, (y_pred, y_true) in enumerate([
-        (rp, y_tr), (lp, y_tr), (mp, y_mlp)
-    ]):
-        ax  = axes[row, col]
-        ax.scatter(y_true, y_pred, s=1, alpha=0.2, color=color)
-        lo  = min(y_true.min(), y_pred.min())
-        hi  = max(y_true.max(), y_pred.max())
-        ax.plot([lo, hi], [lo, hi], "r--", linewidth=1)
-        ax.set_xlabel(f"True {label}")
-        ax.set_ylabel(f"Pred {label}")
-        ax.set_title(f"{row_labels[row]} — {label}")
-
-plt.tight_layout()
-plt.savefig(f"{DATA_DIR}\\pred_vs_true.png", dpi=150)
-plt.show()
-
-# ========= 12. 单工况流场对比（CFD vs RF预测） =========
-# 取 v=0.05, T=313.15
-V_PLOT = 0.05
-T_PLOT = 313.15
-subset = data[
-    (data["v_inlet"] == V_PLOT) & (data["T_inlet"] == T_PLOT)
-].copy()
-
-if len(subset) == 0:
-    print(f"⚠ 找不到 v={V_PLOT}, T={T_PLOT} 的工况，跳过流场对比图")
-else:
-    X_sub     = subset[FEATURES]
-    pred_vel  = rf_vel.predict(X_sub)
-    pred_temp = rf_temp.predict(X_sub)
-
-    fig, axes = plt.subplots(2, 2, figsize=(14, 10))
-    fig.suptitle(f"Flow Field Comparison  v={V_PLOT} m/s, T={T_PLOT} K",
-                 fontsize=13)
-
-    pairs = [
-        (axes[0,0], subset["vel_mag"],     "coolwarm", "CFD Velocity (m/s)"),
-        (axes[0,1], pred_vel,              "coolwarm", "RF Predicted Velocity (m/s)"),
-        (axes[1,0], subset["temperature"], "jet",      "CFD Temperature (K)"),
-        (axes[1,1], pred_temp,             "jet",      "RF Predicted Temperature (K)"),
-    ]
-    for ax, values, cmap, title in pairs:
-        sc = ax.scatter(subset["x"], subset["y"],
-                        c=values, cmap=cmap, s=1)
-        plt.colorbar(sc, ax=ax)
-        ax.set_title(title)
-        ax.set_xlabel("x (m)")
-        ax.set_ylabel("y (m)")
-
-    plt.tight_layout()
-    plt.savefig(f"{DATA_DIR}\\field_comparison.png", dpi=150)
-    plt.show()
-
-# ========= 13. 保存模型 =========
-joblib.dump(rf_vel,   f"{DATA_DIR}\\rf_vel.pkl")
-joblib.dump(rf_temp,  f"{DATA_DIR}\\rf_temp.pkl")
-joblib.dump(rf_pres,  f"{DATA_DIR}\\rf_pres.pkl")
-joblib.dump(lgb_vel,  f"{DATA_DIR}\\lgb_vel.pkl")
-joblib.dump(lgb_temp, f"{DATA_DIR}\\lgb_temp.pkl")
-joblib.dump(lgb_pres, f"{DATA_DIR}\\lgb_pres.pkl")
-print("\n所有模型已保存至 DATA_DIR")
+print("\n所有图片已保存至 DATA_DIR")
