@@ -1,1 +1,3 @@
 base是调用pyfluent进行批量修改速度、温度
+导出全局的速度、温度
+再把csv中Tmax、Vmax整理到summary中
