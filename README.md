@@ -13,6 +13,11 @@ Fluent_ML_Thermo-fluid coupling_Reverse optimization对一个简单的圆柱绕�
 | MLP | Velocity (m/s) | 0.6985 | 3.7276e-02 | 410.1848 | -616.454398 |
 | MLP | Temperature (K) | 0.2418 | 7.8918e+03 | 467.0946 | -241.440387 |
 | MLP | Pressure (Pa) | 0.2202 | 2.9623e+05 | 21.7856 | -0.344093 |
+更新后
+| MLP2 | Velocity (m/s) | 0.7754 | 6.9867e-04 | 0.2957 | 0.999679 |
+| MLP2 | Temperature (K) | 0.2748 | 2.0182e-01 | 0.2691 | 0.999920 |
+| MLP2 | Pressure (Pa) | 0.2289 | 6.1423e+00 | 0.2264 | 0.999855 |
+
 
 <img width="563" height="150" alt="feature_importance" src="https://github.com/user-attachments/assets/a2e14f1d-23f9-4879-ad2d-5fb040ea6914" />
 <img width="562.5" height="487.5" alt="pred_vs_true" src="https://github.com/user-attachments/assets/eccc8633-a9d2-4fab-89c4-ea9f496675da" />
