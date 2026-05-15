@@ -91,6 +91,7 @@ print(f"\n>>> vmax代理: {sname_vmax}  |  tmax代理: {sname_tmax}")
 
 # ========= 4. 响应面可视化（验证代理模型合理性） =========
 # 输出了response_surface.png，，就是把v、T的3600个点做成了不同的区块，二维的有颜色的表格，安插了已经有的实际样本点
+# 编造插值了中间的参数3600个来预测并输出等高线图
 v_grid = np.linspace(V_MIN, V_MAX, 60)
 T_grid = np.linspace(T_MIN, T_MAX, 60) # 做成一维表格123
 
@@ -140,9 +141,7 @@ class CoolingOptProblem(Problem):
             #用父类的初始化函数，把问题参数传给pymoo让它在内部做好准备
             n_var=2,#设计变量
             n_obj=2,#优化目标
-            n_ieq_constr=0,#约束方程个数
-
-            
+            n_ieq_constr=0,#约束方程个数            
             xl=np.array([V_MIN, T_MIN]),#下限
             xu=np.array([V_MAX, T_MAX])#上限
         )
@@ -529,6 +528,9 @@ def find_nearest_pareto(vmax_target, tmax_target):
     dist = np.sqrt((v_norm - tv_norm)**2 + (t_norm - tt_norm)**2)
     # 计算Pareto前沿上每个点到期望目标的归一化欧氏距离
     # 距离越小说明这个Pareto解越接近工程师的期望
+    # 可以改权重，现在是0.5，但可以改为
+    #dist = np.sqrt(0.3 * (v_norm - tv_norm)**2 + 0.7 * (t_norm - tt_norm)**2)
+    #这时候就是温度权重0.7，当速度权重到了0那就是13.1的内容了
 
     idx = int(dist.idxmin())
     # idxmin()返回距离最小的那行的索引号
@@ -583,3 +585,24 @@ if __name__ == "__main__":
     find_nearest_pareto(vmax_target=0.05, tmax_target=320.0)
     # 工程师期望vmax≈0.05 m/s，tmax≈320K
     # 从Pareto前沿里找归一化距离最近的真实可行解推荐给工程师
+
+# ========= 13. 示例调用注释 =========
+# 三个模块的本质：
+#
+# 13.1 inverse_design_tmax：单目标优化
+#   约束 tmax ≤ 320K，在满足约束的前提下找 v_inlet 最小的点
+#   从整个设计空间里抠出一个最优点，不考虑别的
+#
+# 13.2 plot_feasibility_region：把13.1的数据可视化
+#   同一批100×100网格预测数据，用颜色画出满足/不满足约束的区域
+#   蓝色虚线是 tmax=320K 的边界，13.1找的最优点就落在这条线附近
+#   13.1是找点，13.2是画区域，两者是同一批数据的两种用法，画出左下角矩形
+#
+# 13.3 find_nearest_pareto：多目标权衡视角
+#   不再问"满不满足约束"，而是问"哪个Pareto解最接近我的期望"
+#   期望点(vmax=0.05, tmax=320)不一定在Pareto前沿上，甚至可能两个都达不到
+#   所以用归一化距离找退而求其次的最优推荐，分配权重找最近点
+#
+# 三者区别：
+#   13.1 / 13.2  搜索全设计空间，约束视角
+#   13.3         只搜Pareto前沿，多目标权衡视角
