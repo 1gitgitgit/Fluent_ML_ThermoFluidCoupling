@@ -12,9 +12,15 @@ from pymoo.optimize import minimize
 from pymoo.operators.crossover.sbx import SBX
 from pymoo.operators.mutation.pm import PM
 from pymoo.operators.sampling.rnd import FloatRandomSampling
+from scipy.optimize import differential_evolution, NonlinearConstraint
+import os
+
+import warnings
+warnings.filterwarnings("ignore")
+
 
 # ========= 1. 配置 =========
-DATA_DIR    = r"D:\VScode\project\2026\demo1\2026-4-5\project_data\data"
+DATA_DIR    = r"D:\VScode\project\2026\demo1\2026-4-24\py\data"
 SUMMARY_CSV = f"{DATA_DIR}\\summary.csv"
 
 V_MIN, V_MAX = 0.001, 0.1      # m/s
@@ -49,8 +55,8 @@ rf_vmax  = train_and_cv(
                           n_jobs=-1, random_state=42),
     X, y_vmax, "RF-vmax")
 lgb_vmax = train_and_cv(
-    lgb.LGBMRegressor(n_estimators=300, learning_rate=0.05,
-                      num_leaves=31, random_state=42, verbose=-1),
+    lgb.LGBMRegressor(n_estimators=50, learning_rate=0.05,
+                      num_leaves=4, min_child_samples=5,random_state=42, verbose=-1),
     X, y_vmax, "LGB-vmax")
 
 print("\n[目标: tmax]")
@@ -84,10 +90,12 @@ surrogate_tmax, sname_tmax = pick_better(
 print(f"\n>>> vmax代理: {sname_vmax}  |  tmax代理: {sname_tmax}")
 
 # ========= 4. 响应面可视化（验证代理模型合理性） =========
+# 输出了response_surface.png，，就是把v、T的3600个点做成了不同的区块，二维的有颜色的表格，安插了已经有的实际样本点
 v_grid = np.linspace(V_MIN, V_MAX, 60)
-T_grid = np.linspace(T_MIN, T_MAX, 60)
-VV, TT = np.meshgrid(v_grid, T_grid)
-grid_pts = np.column_stack([VV.ravel(), TT.ravel()])
+T_grid = np.linspace(T_MIN, T_MAX, 60) # 做成一维表格123
+
+VV, TT = np.meshgrid(v_grid, T_grid)    # 各自做成二维的[123，abc]
+grid_pts = np.column_stack([VV.ravel(), TT.ravel()])    # 交织在一起了[1a,2a,3a,1b,]
 
 pred_vmax_grid = surrogate_vmax.predict(grid_pts).reshape(60, 60)
 pred_tmax_grid = surrogate_tmax.predict(grid_pts).reshape(60, 60)
@@ -121,19 +129,24 @@ plt.show()
 
 # ========= 5. 定义多目标优化问题 =========
 class CoolingOptProblem(Problem):
+    # (problem)是继承自pybmoo的函数，并且要新加点功能
     """
     设计变量: x[0]=v_inlet (m/s), x[1]=T_inlet (K)
     目标函数: 最小化 vmax 和 tmax（两个都越小越好）
     约束:     无硬约束，边界由 xl/xu 控制
     """
     def __init__(self, model_vmax, model_tmax):
-        super().__init__(
-            n_var=2,
-            n_obj=2,
-            n_ieq_constr=0,
-            xl=np.array([V_MIN, T_MIN]),
-            xu=np.array([V_MAX, T_MAX])
+        super().__init__(   #super的意思是对于父类pymoo的problem进行操作
+            #用父类的初始化函数，把问题参数传给pymoo让它在内部做好准备
+            n_var=2,#设计变量
+            n_obj=2,#优化目标
+            n_ieq_constr=0,#约束方程个数
+
+            
+            xl=np.array([V_MIN, T_MIN]),#下限
+            xu=np.array([V_MAX, T_MAX])#上限
         )
+        # 把两个代理模型存到对象身上
         self.model_vmax = model_vmax
         self.model_tmax = model_tmax
 
@@ -141,8 +154,17 @@ class CoolingOptProblem(Problem):
         f1 = self.model_vmax.predict(x)
         f2 = self.model_tmax.predict(x)
         out["F"] = np.column_stack([f1, f2])
+            #n_ieq_constr=2
+            # out["F"] → 目标函数值，越小越好（minimize）
+            # out["G"] → 不等式约束，必须满足 G <= 0
+            # out["H"] → 等式约束，必须满足 H == 0 比如：
+            # 约束：G <= 0 才满足
+            # g1 = f1 - 5.0   # vmax <= 5.0  →  f1 - 5.0 <= 0
+            # g2 = f2 - 400.0  # tmax <= 400K →  f2 - 400.0 <= 0
+            # out["G"] = np.column_stack([g1, g2])
 
 problem = CoolingOptProblem(surrogate_vmax, surrogate_tmax)
+#把定义好的叫做problem，其实也可以叫my_problem
 
 # ========= 6. 运行 NSGA-II =========
 print("\n" + "="*50)
@@ -151,48 +173,82 @@ print("="*50)
 
 algorithm = NSGA2(
     pop_size=100,
+    # 种群大小，每一代有100个个体。
+    # 个体是什么：一个个体就是一个设计方案，比如[v_inlet=0.03, T_inlet=310K]，是一个长度为2的向量。
+    # 100个个体就是100个不同的设计方案同时在进化。
     sampling=FloatRandomSampling(),
-    crossover=SBX(prob=0.9, eta=15),
-    mutation=PM(eta=20),
-    eliminate_duplicates=True
+    #只在第0代用，用来生成初始种群。在xl和xu定义的范围内，随机撒100个点作为第一代个体
+    crossover=SBX(prob=0.9, eta=15),#模拟基因重组0.9的概率交叉重组0.1来自父代，eta表示叛逆指数
+    mutation=PM(eta=20),#变异
+    eliminate_duplicates=True#去掉重复个体
 )
 
 t0  = time.time()
 res = minimize(
     problem,
+    # 刚才定义好的问题对象，里面有边界、目标函数、代理模型
     algorithm,
+    # 刚才配置好的NSGA2对象，里面有种群大小和遗传算子
     termination=("n_gen", 200),
+    # 停止条件：跑满200代停止
+    # 总评估次数 = 100个体 × 200代 = 20000次
+    # 全部走代理模型，不跑CFD，所以秒级完成
     seed=42,
+    # 固定随机种子，保证每次跑结果一致，方便复现和对比
     verbose=True
+    # 每代打印进度，可以看到Pareto前沿在一代代变好
 )
 print(f"\nNSGA-II 耗时: {time.time()-t0:.2f}s")
+# time.time()-t0 = 结束时间 - 开始时间 = 总耗时秒数
+
 print(f"Pareto前沿解的数量: {len(res.X)}")
+# res.X：前沿上所有解的设计变量，shape=(n_pareto, 2)
+# 每行是一个 [v_inlet, T_inlet]，是优化器找到的设计参数
+# res.F：对应的目标值，shape=(n_pareto, 2)
+# 每行是一个 [vmax_pred, tmax_pred]，是代理模型的预测结果
+# res.X[i] 和 res.F[i] 永远是同一个设计点的输入和输出，行号对应
 
 # ========= 7. 整理Pareto结果 =========
-pareto_X = res.X   # shape: (n_pareto, 2)
-pareto_F = res.F   # shape: (n_pareto, 2)
+pareto_X = res.X
+pareto_F = res.F
+# 只是换了个短名字，方便后面用，内容完全一样
 
 pareto_df = pd.DataFrame({
     "v_inlet":   pareto_X[:, 0],
+    # pareto_X所有行的第0列，也就是所有解的v_inlet值
     "T_inlet":   pareto_X[:, 1],
+    # pareto_X所有行的第1列，也就是所有解的T_inlet值
     "vmax_pred": pareto_F[:, 0],
     "tmax_pred": pareto_F[:, 1],
 })
-pareto_df = pareto_df.sort_values("tmax_pred").reset_index(drop=True)
+# 把设计变量和目标值合并成一张表，方便查看和保存
 
-print("\nPareto前沿（按tmax排序，前10条）:")
-print(pareto_df.head(10).to_string(index=False))
+pareto_df = pareto_df.sort_values("tmax_pred").reset_index(drop=True)
+# 按tmax从小到大排序，散热最好的排在最前面
+# reset_index(drop=True)：排序后重新编号行索引，drop=True表示丢掉原来的索引
+
 pareto_df.to_csv(f"{DATA_DIR}\\pareto_results.csv", index=False)
-print(f"\nPareto结果已保存: {DATA_DIR}\\pareto_results.csv")
+# 保存成CSV，index=False表示不把行号写进文件里
 
 # ========= 8. 推荐设计点 =========
 idx_min_tmax = int(np.argmin(pareto_F[:, 1]))
-idx_min_vmax = int(np.argmin(pareto_F[:, 0]))
+# argmin返回tmax列中最小值的行号，这个点就是散热最极致的方案
 
-# 折中：归一化后距离原点最近
-F_norm       = (pareto_F - pareto_F.min(axis=0)) / \
-               (pareto_F.max(axis=0) - pareto_F.min(axis=0) + 1e-12)
+idx_min_vmax = int(np.argmin(pareto_F[:, 0]))
+# 同理，vmax最小的点，也就是泵功消耗最小的方案
+
+F_norm = (pareto_F - pareto_F.min(axis=0)) / \
+         (pareto_F.max(axis=0) - pareto_F.min(axis=0) + 1e-12)
+# 把两个目标值归一化到[0,1]区间
+# 为什么要归一化：vmax单位是m/s数量级很小，tmax单位是K数量级很大
+# 不归一化直接算距离，tmax会完全压制vmax，结果没有意义
+# +1e-12是防止分母为零（万一所有解的某个目标值完全相同）
+# axis=0表示沿行方向，也就是对每一列分别求min和max
+
 idx_balanced = int(np.argmin(np.linalg.norm(F_norm, axis=1)))
+# np.linalg.norm(F_norm, axis=1)：对每一行算它到原点(0,0)的欧氏距离
+# 距离最小的那个点，就是两个目标归一化后最接近同时最优的折中方案
+# 工程上最常用这个点，因为它不偏向任何一个目标
 
 recommend = {
     "最低温度 (Min tmax)":  idx_min_tmax,
@@ -216,23 +272,39 @@ for label, idx in recommend.items():
 
 # ========= 9. 可视化 =========
 fig, axes = plt.subplots(1, 3, figsize=(18, 5))
+# 创建一行三列的画布，左中右三张图
+
 fig.suptitle("NSGA-II Multi-Objective Optimization Results", fontsize=13)
+# 整张画布的总标题
 
 # 9.1 目标空间 Pareto前沿
 ax = axes[0]
 ax.scatter(pareto_F[:, 0], pareto_F[:, 1],
            c="steelblue", s=15, label="Pareto front")
-# 原始CFD样本在代理模型上的预测值
+# 画出所有Pareto前沿的点
+# x轴是vmax，y轴是tmax
+# 这张图的意义：直观看到两个目标之间的权衡曲线长什么样
+# 左下角最好但不可达，前沿上每个点都是某种权衡的最优解
+
 f1_cfd = surrogate_vmax.predict(X)
 f2_cfd = surrogate_tmax.predict(X)
+# 把原始35个CFD样本点也用代理模型预测一下
+# 目的是对比：原始样本的性能 vs Pareto前沿的性能
+# 如果Pareto前沿明显优于原始样本，说明优化找到了更好的设计
+
 ax.scatter(f1_cfd, f2_cfd, c="red", s=50, marker="x",
            zorder=5, label="CFD samples")
-# 标出三个推荐点
+# 把CFD样本点叠加在Pareto图上，marker="x"方便区分
+
 colors_rec = {"最低温度": "red", "最低速度": "blue", "折中方案": "green"}
 for (label, idx), color in zip(recommend.items(), ["red", "blue", "green"]):
     ax.scatter(pareto_F[idx, 0], pareto_F[idx, 1],
                c=color, s=100, zorder=6,
                label=label.split(" ")[0])
+# 把三个推荐点单独标出来
+# zip把recommend字典和颜色列表配对，一一对应
+# label.split(" ")[0]只取标签的第一个词，防止图例太长
+
 ax.set_xlabel("vmax (m/s)")
 ax.set_ylabel("tmax (K)")
 ax.set_title("Pareto Front (Objective Space)")
@@ -242,12 +314,23 @@ ax.legend(fontsize=8)
 ax = axes[1]
 sc = ax.scatter(pareto_X[:, 0], pareto_X[:, 1],
                 c=pareto_F[:, 1], cmap="jet", s=15)
+# x轴是v_inlet，y轴是T_inlet，颜色代表tmax
+# 这张图的意义：看设计变量在哪个区域对应的散热效果好
+# 工程师可以直接从这张图判断：应该调速度还是调温度
+
 plt.colorbar(sc, ax=ax, label="tmax (K)")
+# 右侧色条，告诉你颜色对应的tmax具体数值
+
 ax.scatter(df["v_inlet"], df["T_inlet"], c="red", s=50,
            marker="x", zorder=5, label="CFD samples")
+# 叠加原始CFD采样点，对比Pareto解和原始样本在设计空间的位置
+# 如果Pareto解集中在某个角落，说明那个区域是最优设计区
+
 for (label, idx), color in zip(recommend.items(), ["red", "blue", "green"]):
     ax.scatter(pareto_X[idx, 0], pareto_X[idx, 1],
                c=color, s=120, zorder=6, marker="*")
+# 三个推荐点用星号标出，s=120比其他点大，更显眼
+
 ax.set_xlabel("v_inlet (m/s)")
 ax.set_ylabel("T_inlet (K)")
 ax.set_title("Pareto Solutions (Design Space)")
@@ -257,6 +340,8 @@ ax.legend(fontsize=8)
 ax = axes[2]
 ax.scatter(pareto_F[:, 0], pareto_F[:, 1],
            c="lightgray", s=12, label="Pareto front")
+# 整条Pareto前沿用浅灰色画出作为背景
+
 for (label, idx), color in zip(recommend.items(), ["red", "blue", "green"]):
     ax.scatter(pareto_F[idx, 0], pareto_F[idx, 1],
                c=color, s=100, zorder=5,
@@ -268,13 +353,233 @@ for (label, idx), color in zip(recommend.items(), ["red", "blue", "green"]):
         fontsize=7,
         arrowprops=dict(arrowstyle="->", lw=0.8)
     )
+# annotate在每个推荐点旁边加文字标注
+# xy：箭头指向的点（推荐点本身的坐标）
+# xytext=(8,8)：文字相对于箭头起点偏移8个像素，防止文字盖住点
+# textcoords="offset points"：偏移单位是像素点
+# arrowprops：箭头样式，"->"是箭头符号，lw是线宽
+
 ax.set_xlabel("vmax (m/s)")
 ax.set_ylabel("tmax (K)")
 ax.set_title("Recommended Solutions")
 ax.legend(fontsize=8)
 
 plt.tight_layout()
+# 自动调整三张图的间距，防止标题和轴标签重叠
+
 plt.savefig(f"{DATA_DIR}\\pareto_front.png", dpi=150)
+# 保存图片，dpi=150是分辨率，150够清晰也不会太大
+
 plt.show()
 
 print("\n所有图片已保存至 DATA_DIR")
+
+# ========= 10. 逆问题模块：单目标反问题 =========
+def inverse_design_tmax(tmax_target, verbose=True):
+    # 逆问题的核心思想：
+    # 正向：给定(v_inlet, T_inlet) → 预测tmax
+    # 逆向：给定tmax上限 → 找满足约束的最小v_inlet
+    # 工程场景：老板说散热温度不能超过320K，在这个前提下怎么把泵功压到最低
+
+    constraint = NonlinearConstraint(
+        lambda x: surrogate_tmax.predict(x.reshape(1, -1))[0],
+        # 约束函数：把代理模型的tmax预测值作为约束
+        # x.reshape(1,-1)：differential_evolution传进来的x是一维的
+        # 代理模型要求输入是二维的(1,2)，所以reshape一下
+        # [0]：predict返回数组，取第一个元素得到标量
+        -np.inf, tmax_target
+        # 约束范围：-∞ ≤ tmax预测值 ≤ tmax_target
+        # 意思是：代理模型预测的tmax必须不超过目标上限
+    )
+
+    bounds = [(V_MIN, V_MAX), (T_MIN, T_MAX)]
+    # 设计空间边界，和NSGA-II里的xl/xu含义相同
+
+    result = differential_evolution(
+        lambda x: x[0],
+        # 目标函数：最小化x[0]，也就是最小化v_inlet
+        # 为什么不用NSGA-II：这里只有一个目标，单目标用differential_evolution更直接
+        bounds,
+        constraints=constraint,
+        # 告诉优化器必须满足tmax≤target这个约束
+        seed=42,
+        tol=1e-3,
+        # 收敛精度，相邻两次迭代结果差小于0.001就停止
+        maxiter=50,
+        # 最多迭代50次，防止跑太久
+        disp=verbose
+        # 是否打印每步迭代信息
+    )
+
+    v_opt, T_opt = result.x
+    # result.x是优化器找到的最优设计变量[v_inlet, T_inlet]
+    # 解包赋值给v_opt和T_opt
+
+    vmax_pred = surrogate_vmax.predict([[v_opt, T_opt]])[0]
+    tmax_pred = surrogate_tmax.predict([[v_opt, T_opt]])[0]
+    # 用两个代理模型预测这个最优点的性能
+    # [[v_opt, T_opt]]：外层列表让输入变成二维(1,2)，符合代理模型要求
+    # [0]：取预测结果的第一个元素
+
+    if verbose:
+        print(f"\n{'='*50}")
+        print(f"逆问题：最小 v_inlet 满足 tmax ≤ {tmax_target:.2f} K")
+        print(f"{'='*50}")
+        print(f"  最优 v_inlet  = {v_opt:.5f} m/s")
+        print(f"  最优 T_inlet  = {T_opt:.2f} K  ({T_opt-273.15:.2f} ℃)")
+        print(f"  预测 vmax     = {vmax_pred:.6f} m/s")
+        print(f"  预测 tmax     = {tmax_pred:.4f} K  ({tmax_pred-273.15:.2f} ℃)")
+        print(f"  优化收敛: {result.success}  (nfev={result.nfev})")
+        # result.success：优化是否正常收敛，True才可信
+        # result.nfev：优化器总共调用了多少次目标函数，衡量计算量
+
+    return {
+        "v_inlet":   v_opt,
+        "T_inlet":   T_opt,
+        "vmax_pred": vmax_pred,
+        "tmax_pred": tmax_pred,
+        "success":   result.success
+    }
+    # 返回字典，方便调用方取用具体字段
+
+# ========= 11. 逆问题模块：可行域可视化 =========
+def plot_feasibility_region(tmax_target, save=True):
+    # 这个函数回答一个问题：
+    # 在整个设计空间里，哪些(v_inlet, T_inlet)组合能满足tmax≤target
+    # 工程意义：给工程师看可行域有多大，设计余量够不够
+
+    n_grid = 100
+    v_grid = np.linspace(V_MIN, V_MAX, n_grid)
+    T_grid = np.linspace(T_MIN, T_MAX, n_grid)
+    VV, TT = np.meshgrid(v_grid, T_grid)
+    grid_pts = np.column_stack([VV.ravel(), TT.ravel()])
+    # 和第5块响应面的做法完全一样
+    # 在设计空间撒100×100=10000个网格点，全部喂给代理模型预测
+
+    tmax_pred = surrogate_tmax.predict(grid_pts).reshape(n_grid, n_grid)
+    # 预测每个网格点的tmax，reshape回二维方便画图
+
+    fig, ax = plt.subplots(figsize=(8, 6))
+
+    cf = ax.contourf(VV, TT, tmax_pred, levels=30, cmap="RdYlGn_r", alpha=0.7)
+    # 填色等高线图，红色=tmax高（不可行），绿色=tmax低（可行）
+    # RdYlGn_r：红黄绿色系，_r表示反转，让高值对应红色
+    # alpha=0.7：半透明，让下面的细节透出来
+
+    plt.colorbar(cf, ax=ax, label="tmax (K)")
+
+    cs = ax.contour(VV, TT, tmax_pred, levels=[tmax_target],
+                    colors="blue", linewidths=2, linestyles="--")
+    # 单独画出tmax=target这一条等值线
+    # 这条蓝色虚线就是可行域和不可行域的分界线
+    # 线左下方满足约束（可行），线右上方不满足（不可行）
+
+    ax.clabel(cs, fmt=f"tmax={tmax_target:.0f}K", fontsize=9)
+    # 在等值线上标注数值，告诉工程师这条线代表多少K
+
+    ax.scatter(df["v_inlet"], df["T_inlet"], c="white", s=60,
+               edgecolors="black", zorder=5, label="CFD samples")
+    # 叠加原始CFD采样点，看有多少样本落在可行域内
+
+    ax.set_xlabel("v_inlet (m/s)")
+    ax.set_ylabel("T_inlet (K)")
+    ax.set_title(f"Feasibility Region (tmax ≤ {tmax_target:.0f} K)")
+    ax.legend(fontsize=9)
+
+    fig.tight_layout()
+    if save:
+        path = f"{DATA_DIR}\\feasibility_region_tmax{tmax_target:.0f}.png"
+        fig.savefig(path, dpi=150)
+        print(f"可行域图已保存: {path}")
+    plt.show()
+
+# ========= 12. 逆问题模块：Pareto 最近解推荐 =========
+def find_nearest_pareto(vmax_target, tmax_target):
+    # 使用场景：工程师说"我希望vmax≈0.05，tmax≈320K"
+    # 但这个点不一定在Pareto前沿上，甚至可能不可达
+    # 这个函数从已有的Pareto前沿里找最接近这个期望的真实可行解
+
+    pareto_path = f"{DATA_DIR}\\pareto_results.csv"
+    if not os.path.exists(pareto_path):
+        print(f"错误: 未找到 {pareto_path}，请先运行 NSGA-II")
+        return None
+    # 检查文件是否存在，没有就报错退出
+    # 因为这个函数依赖NSGA-II的结果，必须先跑第6块
+
+    pdf = pd.read_csv(pareto_path)
+    # 读取Pareto结果表，每行是一个Pareto解
+
+    vmin, vmax = pdf["vmax_pred"].min(), pdf["vmax_pred"].max()
+    tmin, tmx  = pdf["tmax_pred"].min(), pdf["tmax_pred"].max()
+    # 记录Pareto前沿上vmax和tmax各自的范围
+    # 用于后面归一化，把两个目标统一到[0,1]区间
+
+    v_norm = (pdf["vmax_pred"] - vmin) / (vmax - vmin + 1e-12)
+    t_norm = (pdf["tmax_pred"] - tmin) / (tmx - tmin + 1e-12)
+    # 对Pareto前沿上每个解的目标值做归一化
+    # 为什么归一化：vmax是m/s级别很小，tmax是K级别很大
+    # 不归一化直接算距离，tmax会完全压制vmax，结果失去意义
+    # +1e-12防止分母为零
+
+    tv_norm = (vmax_target - vmin) / (vmax - vmin + 1e-12)
+    tt_norm = (tmax_target - tmin) / (tmx - tmin + 1e-12)
+    # 把工程师的期望目标值也用同样的方式归一化
+    # 这样才能和前沿上的点在同一个尺度下比较距离
+
+    dist = np.sqrt((v_norm - tv_norm)**2 + (t_norm - tt_norm)**2)
+    # 计算Pareto前沿上每个点到期望目标的归一化欧氏距离
+    # 距离越小说明这个Pareto解越接近工程师的期望
+
+    idx = int(dist.idxmin())
+    # idxmin()返回距离最小的那行的索引号
+    # 这就是推荐的设计点
+
+    nearest = pdf.loc[idx]
+    # 用索引号取出这一行的完整信息
+
+    print(f"\n{'='*50}")
+    print(f"Pareto 最近解推荐")
+    print(f"{'='*50}")
+    print(f"  目标:  vmax_target={vmax_target:.4f},  tmax_target={tmax_target:.2f}")
+    print(f"  最近 Pareto 解 (归一化距离={dist[idx]:.4f}):")
+    print(f"    v_inlet   = {nearest['v_inlet']:.5f} m/s")
+    print(f"    T_inlet   = {nearest['T_inlet']:.2f} K  ({nearest['T_inlet']-273.15:.2f} ℃)")
+    print(f"    vmax_pred = {nearest['vmax_pred']:.6f} m/s")
+    print(f"    tmax_pred = {nearest['tmax_pred']:.4f} K  ({nearest['tmax_pred']-273.15:.2f} ℃)")
+
+    return {
+        "v_inlet":   nearest["v_inlet"],
+        "T_inlet":   nearest["T_inlet"],
+        "vmax_pred": nearest["vmax_pred"],
+        "tmax_pred": nearest["tmax_pred"],
+        "distance":  dist[idx],
+        # 归一化距离，越小说明推荐结果越接近期望，可以用来评估推荐质量
+        "index":     idx
+        # 这个解在pareto_results.csv里的行号，方便溯源
+    }
+
+# ========= 13. 示例调用 =========
+if __name__ == "__main__":
+    # if __name__ == "__main__"的意思：
+    # 只有直接运行这个文件时才执行下面的代码
+    # 如果别的文件import这个文件，下面的代码不会自动执行
+    # 好处：这个文件既可以当独立脚本跑，也可以当模块被别人import
+
+    print("\n" + "="*50)
+    print("===== 逆问题模块示例调用 =====")
+    print("="*50)
+
+    # 13.1 单目标反问题：tmax 上限 320 K
+    res = inverse_design_tmax(tmax_target=320.0)
+    # 问题：在tmax不超过320K的前提下，v_inlet最小能取多少？
+    # 结果存在res里，是一个字典，包含最优v_inlet、T_inlet和预测性能
+
+    # 13.2 可行域可视化
+    plot_feasibility_region(tmax_target=320.0)
+    # 画出设计空间里哪些区域满足tmax≤320K
+    # 蓝色虚线是边界，线左下方可行，右上方不可行
+
+    # 13.3 Pareto 最近解推荐
+    find_nearest_pareto(vmax_target=0.05, tmax_target=320.0)
+    # 工程师期望vmax≈0.05 m/s，tmax≈320K
+    # 从Pareto前沿里找归一化距离最近的真实可行解推荐给工程师
