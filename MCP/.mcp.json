@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "mcp-server": {
+      "command": "D:\\VScode\\project\\2026\\demo1\\venv312\\Scripts\\python.exe",
+      "args": ["D:\\VScode\\project\\2026\\demo1\\2026-4-24\\py\\mcp\\MCP_server.py"]
+    }
+  }
+}
