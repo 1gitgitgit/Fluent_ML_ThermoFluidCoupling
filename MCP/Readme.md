@@ -58,9 +58,9 @@ Python · MCP Protocol · pymoo(NSGA-II) · scikit-learn · LightGBM · joblib
   3. C盘全局设置 — C:\Users\user\.claude\settings.json
   {
     "env": {
-      "ANTHROPIC_BASE_URL": "https://api.deepseek.com/anthropic",
+      "ANTHROPIC_BASE_URL": "https://api",
       "ANTHROPIC_AUTH_TOKEN": "sk-...",
-      "ANTHROPIC_MODEL": "deepseek-v4-flash"
+      "ANTHROPIC_MODEL": ""
     },
     "theme": "dark",
     "includeCoAuthoredBy": false
