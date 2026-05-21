@@ -2,18 +2,32 @@
 
 ### Initial Results
 
+#### RF Model
 
-[RF Velocity (m/s)]      Time: 0.1494s | RMSE: 7.7820e-04 | NRMSE: 0.3293% | R²: 0.999602
-[RF Temperature (K)]    Time: 0.2422s | RMSE: 1.6963e-01 | NRMSE: 0.2262% | R²: 0.999943
-[RF Pressure (Pa)]      Time: 0.2105s | RMSE: 4.4561e-01 | NRMSE: 0.0164% | R²: 0.999999
+| Metric | Velocity (m/s) | Temperature (K) | Pressure (Pa) |
+|--------|----------------|------------------|----------------|
+| Time (s) | 0.1494 | 0.2422 | 0.2105 |
+| RMSE | 7.7820e-04 | 1.6963e-01 | 4.4561e-01 |
+| NRMSE (%) | 0.3293 | 0.2262 | 0.0164 |
+| R² | 0.999602 | 0.999943 | 0.999999 |
 
-[LGB Velocity (m/s)]    Time: 0.1823s | RMSE: 4.2870e-04 | NRMSE: 0.1814% | R²: 0.999879
-[LGB Temperature (K)]   Time: 0.1742s | RMSE: 1.8931e-01 | NRMSE: 0.2524% | R²: 0.999929
-[LGB Pressure (Pa)]     Time: 0.1676s | RMSE: 1.0642e+00 | NRMSE: 0.0392% | R²: 0.999996
+#### LGB Model
 
-[MLP Velocity (m/s)]    Time: 0.6985s | RMSE: 3.7276e-02 | NRMSE: 410.1848% | R²: -616.454398
-[MLP Temperature (K)]   Time: 0.2418s | RMSE: 7.8918e+03 | NRMSE: 467.0946% | R²: -241.440387
-[MLP Pressure (Pa)]     Time: 0.2202s | RMSE: 2.9623e+05 | NRMSE: 21.7856% | R²: -0.344093
+| Metric | Velocity (m/s) | Temperature (K) | Pressure (Pa) |
+|--------|----------------|------------------|----------------|
+| Time (s) | 0.1823 | 0.1742 | 0.1676 |
+| RMSE | 4.2870e-04 | 1.8931e-01 | 1.0642e+00 |
+| NRMSE (%) | 0.1814 | 0.2524 | 0.0392 |
+| R² | 0.999879 | 0.999929 | 0.999996 |
+
+#### MLP Model
+
+| Metric | Velocity (m/s) | Temperature (K) | Pressure (Pa) |
+|--------|----------------|------------------|----------------|
+| Time (s) | 0.6985 | 0.2418 | 0.2202 |
+| RMSE | 3.7276e-02 | 7.8918e+03 | 2.9623e+05 |
+| NRMSE (%) | 410.1848 | 467.0946 | 21.7856 |
+| R² | -616.454398 | -241.440387 | -0.344093 |
 
 
 ### Problem Analysis
