@@ -42,11 +42,14 @@ As a result, the MLP predictions and ground-truth values were evaluated under in
 
 ### Updated Results After Standardization
 
-```text
-[MLP Velocity (m/s)]    Time: 0.7754s | RMSE: 6.9867e-04 | NRMSE: 0.2957% | R²: 0.999679
-[MLP Temperature (K)]   Time: 0.2748s | RMSE: 2.0182e-01 | NRMSE: 0.2691% | R²: 0.999920
-[MLP Pressure (Pa)]     Time: 0.2289s | RMSE: 6.1423e+00 | NRMSE: 0.2264% | R²: 0.999855
-```
+#### MLP Model
+
+| Variable | Time (s) | RMSE | NRMSE (%) | R² |
+|----------|----------|------|-----------|----|
+| Velocity (m/s) | 0.7754 | 6.9867e-04 | 0.2957 | 0.999679 |
+| Temperature (K) | 0.2748 | 2.0182e-01 | 0.2691 | 0.999920 |
+| Pressure (Pa) | 0.2289 | 6.1423e+00 | 0.2264 | 0.999855 |
+
 
 After applying consistent target standardization, the MLP model achieved prediction accuracy comparable to RF and LGB models, with all R² values approaching 1.0 and NRMSE reduced to below 0.3%.
 
