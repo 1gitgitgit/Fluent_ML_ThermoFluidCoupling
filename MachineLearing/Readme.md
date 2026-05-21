@@ -2,7 +2,7 @@
 
 ### Initial Results
 
-```text
+
 [RF Velocity (m/s)]      Time: 0.1494s | RMSE: 7.7820e-04 | NRMSE: 0.3293% | R²: 0.999602
 [RF Temperature (K)]    Time: 0.2422s | RMSE: 1.6963e-01 | NRMSE: 0.2262% | R²: 0.999943
 [RF Pressure (Pa)]      Time: 0.2105s | RMSE: 4.4561e-01 | NRMSE: 0.0164% | R²: 0.999999
@@ -14,7 +14,7 @@
 [MLP Velocity (m/s)]    Time: 0.6985s | RMSE: 3.7276e-02 | NRMSE: 410.1848% | R²: -616.454398
 [MLP Temperature (K)]   Time: 0.2418s | RMSE: 7.8918e+03 | NRMSE: 467.0946% | R²: -241.440387
 [MLP Pressure (Pa)]     Time: 0.2202s | RMSE: 2.9623e+05 | NRMSE: 21.7856% | R²: -0.344093
-```
+
 
 ### Problem Analysis
 
