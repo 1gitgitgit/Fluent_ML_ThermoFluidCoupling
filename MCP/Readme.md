@@ -71,5 +71,5 @@ Python · MCP Protocol · pymoo(NSGA-II) · scikit-learn · LightGBM · joblib
   开启该服务，C:\Users\user\.claude\settings.json 提供全局 API 连接信息。
   
 
-<img width="775" height="782" alt="image" src="https://github.com/user-attachments/assets/c101e01d-be50-44ab-a92e-9ad437162a06" />
+<img width="387.5" height="391" alt="image" src="https://github.com/user-attachments/assets/c101e01d-be50-44ab-a92e-9ad437162a06" />
 
