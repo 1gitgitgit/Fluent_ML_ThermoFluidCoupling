@@ -73,3 +73,5 @@ Python · MCP Protocol · pymoo(NSGA-II) · scikit-learn · LightGBM · joblib
 
 <img width="387.5" height="391" alt="image" src="https://github.com/user-attachments/assets/c101e01d-be50-44ab-a92e-9ad437162a06" />
 
+<img width="304" height="275" alt="image" src="https://github.com/user-attachments/assets/e3df360b-178b-424e-b1e6-0e799275c5d7" />
+
