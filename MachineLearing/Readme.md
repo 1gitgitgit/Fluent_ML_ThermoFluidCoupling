@@ -25,3 +25,7 @@ tmax 预测 R² = 0.9843
 NSGA-II 多目标优化耗时 16.50 s。
 
 集成 inverse design 模块，支持基于目标温度约束的参数反求。
+
+<img width="675" height="187.5" alt="pareto_front" src="https://github.com/user-attachments/assets/243216bb-42a3-4a2f-9990-e708bee3b473" />
+
+<img width="525" height="187.5" alt="response_surface" src="https://github.com/user-attachments/assets/ba6b7d58-07e6-4f0a-a569-f2a8872d0f9f" />
