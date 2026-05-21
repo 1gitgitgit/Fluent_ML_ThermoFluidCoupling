@@ -69,3 +69,7 @@ Python · MCP Protocol · pymoo(NSGA-II) · scikit-learn · LightGBM · joblib
 
   总结：要正常调用这个 MCP 服务，需要以上 3 个配置同时存在。.mcp.json 定义服务怎么跑，.claude/settings.local.json
   开启该服务，C:\Users\user\.claude\settings.json 提供全局 API 连接信息。
+  
+
+<img width="775" height="782" alt="image" src="https://github.com/user-attachments/assets/c101e01d-be50-44ab-a92e-9ad437162a06" />
+
