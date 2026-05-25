@@ -1,0 +1,118 @@
+
+特征长度 L = 0.0001 m
+Re 范围: 0.1 ~ 27.3
+总样本数: 147700
+
+训练集(内部工况): 101280  测试集(边界工况): 46420
+测试工况数: 11/35
+
+==================================================
+===== Grid Search 调参（基于 Velocity 目标）=====
+==================================================
+
+RF GridSearch...
+Fitting 3 folds for each of 12 candidates, totalling 36 fits
+  最优参数: {'max_depth': 20, 'min_samples_leaf': 1, 'n_estimators': 200}  耗时: 136.4s
+
+LGB GridSearch...
+Fitting 3 folds for each of 8 candidates, totalling 24 fits
+  最优参数: {'learning_rate': 0.1, 'n_estimators': 500, 'num_leaves': 63}  耗时: 30.8s
+
+MLP GridSearch...
+Fitting 3 folds for each of 4 candidates, totalling 12 fits
+  最优参数: {'hidden_layer_sizes': (256, 256, 128, 64), 'learning_rate_init': 0.0005}  耗时: 4627.1s
+
+==================================================
+===== Random Forest（最优参数）=====
+==================================================
+  训练 RF-Velocity...
+  耗时: 9.10s
+  训练 RF-Temperature...
+  耗时: 9.89s
+  训练 RF-Pressure...
+  耗时: 8.19s
+RF 总训练耗时: 27.18s
+
+  [RF Velocity (m/s)]  耗时: 0.2349s | RMSE: 3.6728e-02 | NRMSE: 15.5259% | R²: 0.541325
+  [RF Temperature (K)]  耗时: 0.2533s | RMSE: 1.3605e+01 | NRMSE: 18.1407% | R²: 0.576679
+  [RF Pressure (Pa)]  耗时: 0.3444s | RMSE: 4.6175e+02 | NRMSE: 16.2440% | R²: 0.601414
+
+==================================================
+===== LightGBM（最优参数）=====
+==================================================
+  训练 LGB-Velocity...
+  耗时: 3.37s
+  训练 LGB-Temperature...
+  耗时: 3.07s
+  训练 LGB-Pressure...
+  耗时: 2.59s
+LightGBM 总训练耗时: 9.03s
+
+  [LGB Velocity (m/s)]  耗时: 0.2882s | RMSE: 3.6248e-02 | NRMSE: 15.3227% | R²: 0.553253
+  [LGB Temperature (K)]  耗时: 0.2778s | RMSE: 1.2832e+01 | NRMSE: 17.1094% | R²: 0.623441
+  [LGB Pressure (Pa)]  耗时: 0.3069s | RMSE: 4.5595e+02 | NRMSE: 16.0400% | R²: 0.611363
+
+==================================================
+===== MLP（最优参数）=====
+==================================================
+  训练 MLP-Velocity...
+  耗时: 266.91s  实际迭代: 88 轮
+  训练 MLP-Temperature...
+  耗时: 75.60s  实际迭代: 35 轮
+  训练 MLP-Pressure...
+  耗时: 81.98s  实际迭代: 38 轮
+MLP 总训练耗时: 424.48s
+
+  [MLP Velocity (m/s)]  耗时: 0.4196s | RMSE: 3.1316e-02 | NRMSE: 13.2378% | R²: 0.666556
+  [MLP Temperature (K)]  耗时: 0.2125s | RMSE: 8.2550e+00 | NRMSE: 11.0067% | R²: 0.844161
+  [MLP Pressure (Pa)]  耗时: 0.2078s | RMSE: 1.4132e+02 | NRMSE: 4.9713% | R²: 0.962668
+d:\VScode\project\2026\demo1\2026-4-24\py\RF_2_GridSearchCV.py:276: UserWarning: Glyph 36793 (\N{CJK UNIFIED IDEOGRAPH-8FB9}) missing from font(s) DejaVu Sans.
+  plt.tight_layout()
+d:\VScode\project\2026\demo1\2026-4-24\py\RF_2_GridSearchCV.py:276: UserWarning: Glyph 30028 (\N{CJK UNIFIED IDEOGRAPH-754C}) missing from font(s) DejaVu Sans.
+  plt.tight_layout()
+d:\VScode\project\2026\demo1\2026-4-24\py\RF_2_GridSearchCV.py:276: UserWarning: Glyph 24037 (\N{CJK UNIFIED IDEOGRAPH-5DE5}) missing from font(s) DejaVu Sans.
+  plt.tight_layout()
+d:\VScode\project\2026\demo1\2026-4-24\py\RF_2_GridSearchCV.py:276: UserWarning: Glyph 20917 (\N{CJK UNIFIED IDEOGRAPH-51B5}) missing from font(s) DejaVu Sans.
+  plt.tight_layout()
+d:\VScode\project\2026\demo1\2026-4-24\py\RF_2_GridSearchCV.py:276: UserWarning: Glyph 22806 (\N{CJK UNIFIED IDEOGRAPH-5916}) missing from font(s) DejaVu Sans.
+  plt.tight_layout()
+d:\VScode\project\2026\demo1\2026-4-24\py\RF_2_GridSearchCV.py:276: UserWarning: Glyph 25512 (\N{CJK UNIFIED IDEOGRAPH-63A8}) missing from font(s) DejaVu Sans.
+  plt.tight_layout()
+d:\VScode\project\2026\demo1\2026-4-24\py\RF_2_GridSearchCV.py:276: UserWarning: Glyph 27979 (\N{CJK UNIFIED IDEOGRAPH-6D4B}) missing from font(s) DejaVu Sans.
+  plt.tight_layout()
+d:\VScode\project\2026\demo1\2026-4-24\py\RF_2_GridSearchCV.py:276: UserWarning: Glyph 35797 (\N{CJK UNIFIED IDEOGRAPH-8BD5}) missing from font(s) DejaVu Sans.
+  plt.tight_layout()
+d:\VScode\project\2026\demo1\2026-4-24\py\RF_2_GridSearchCV.py:277: UserWarning: Glyph 36793 (\N{CJK UNIFIED IDEOGRAPH-8FB9}) missing from font(s) DejaVu Sans.
+  plt.savefig(f"{DATA_DIR}\\pred_vs_true.png", dpi=150)
+d:\VScode\project\2026\demo1\2026-4-24\py\RF_2_GridSearchCV.py:277: UserWarning: Glyph 30028 (\N{CJK UNIFIED IDEOGRAPH-754C}) missing from font(s) DejaVu Sans.
+  plt.savefig(f"{DATA_DIR}\\pred_vs_true.png", dpi=150)
+d:\VScode\project\2026\demo1\2026-4-24\py\RF_2_GridSearchCV.py:277: UserWarning: Glyph 24037 (\N{CJK UNIFIED IDEOGRAPH-5DE5}) missing from font(s) DejaVu Sans.
+  plt.savefig(f"{DATA_DIR}\\pred_vs_true.png", dpi=150)
+d:\VScode\project\2026\demo1\2026-4-24\py\RF_2_GridSearchCV.py:277: UserWarning: Glyph 20917 (\N{CJK UNIFIED IDEOGRAPH-51B5}) missing from font(s) DejaVu Sans.
+  plt.savefig(f"{DATA_DIR}\\pred_vs_true.png", dpi=150)
+d:\VScode\project\2026\demo1\2026-4-24\py\RF_2_GridSearchCV.py:277: UserWarning: Glyph 22806 (\N{CJK UNIFIED IDEOGRAPH-5916}) missing from font(s) DejaVu Sans.
+  plt.savefig(f"{DATA_DIR}\\pred_vs_true.png", dpi=150)
+d:\VScode\project\2026\demo1\2026-4-24\py\RF_2_GridSearchCV.py:277: UserWarning: Glyph 25512 (\N{CJK UNIFIED IDEOGRAPH-63A8}) missing from font(s) DejaVu Sans.
+  plt.savefig(f"{DATA_DIR}\\pred_vs_true.png", dpi=150)
+d:\VScode\project\2026\demo1\2026-4-24\py\RF_2_GridSearchCV.py:277: UserWarning: Glyph 27979 (\N{CJK UNIFIED IDEOGRAPH-6D4B}) missing from font(s) DejaVu Sans.
+  plt.savefig(f"{DATA_DIR}\\pred_vs_true.png", dpi=150)
+d:\VScode\project\2026\demo1\2026-4-24\py\RF_2_GridSearchCV.py:277: UserWarning: Glyph 35797 (\N{CJK UNIFIED IDEOGRAPH-8BD5}) missing from font(s) DejaVu Sans.
+  plt.savefig(f"{DATA_DIR}\\pred_vs_true.png", dpi=150)
+D:\python3_12_7\Lib\tkinter\__init__.py:862: UserWarning: Glyph 36793 (\N{CJK UNIFIED IDEOGRAPH-8FB9}) missing from font(s) DejaVu Sans.
+  func(*args)
+D:\python3_12_7\Lib\tkinter\__init__.py:862: UserWarning: Glyph 30028 (\N{CJK UNIFIED IDEOGRAPH-754C}) missing from font(s) DejaVu Sans.
+  func(*args)
+D:\python3_12_7\Lib\tkinter\__init__.py:862: UserWarning: Glyph 24037 (\N{CJK UNIFIED IDEOGRAPH-5DE5}) missing from font(s) DejaVu Sans.
+  func(*args)
+D:\python3_12_7\Lib\tkinter\__init__.py:862: UserWarning: Glyph 20917 (\N{CJK UNIFIED IDEOGRAPH-51B5}) missing from font(s) DejaVu Sans.
+  func(*args)
+D:\python3_12_7\Lib\tkinter\__init__.py:862: UserWarning: Glyph 22806 (\N{CJK UNIFIED IDEOGRAPH-5916}) missing from font(s) DejaVu Sans.
+  func(*args)
+D:\python3_12_7\Lib\tkinter\__init__.py:862: UserWarning: Glyph 25512 (\N{CJK UNIFIED IDEOGRAPH-63A8}) missing from font(s) DejaVu Sans.
+  func(*args)
+D:\python3_12_7\Lib\tkinter\__init__.py:862: UserWarning: Glyph 27979 (\N{CJK UNIFIED IDEOGRAPH-6D4B}) missing from font(s) DejaVu Sans.
+  func(*args)
+D:\python3_12_7\Lib\tkinter\__init__.py:862: UserWarning: Glyph 35797 (\N{CJK UNIFIED IDEOGRAPH-8BD5}) missing from font(s) DejaVu Sans.
+  func(*args)
+
+所有模型已保存至 DATA_DIR
