@@ -148,13 +148,7 @@ MCP Server 工具化封装
 | `data/model_comparison.csv` | 代理模型对比结果 |
 | `data/pareto_results_valid.csv` | Pareto 优化结果 |
 
-## 可用于简历的表述
 
-- 基于 PyFluent 搭建热流耦合 CFD 自动化仿真流程，批量生成 35 组入口速度/温度工况与约 14.7 万个全场样本点。
-- 使用 Random Forest、LightGBM、MLP、GPR 构建速度场、温度场、压力场代理模型，随机测试集上主要模型 R2 达到 0.999 量级。
-- 设计边界工况外推实验，分析代理模型在未见工况下的泛化能力，并引入 Reynolds 数等物理特征进行改进。
-- 基于 surrogate model 和 NSGA-II 实现入口参数多目标优化，搜索最大速度与最高温度之间的 Pareto 最优解。
-- 将预测与优化流程封装为 MCP Server，支持 Agent 通过 `predict_field`、`run_optimization`、`get_best_design` 等工具调用工程模型。
 
 ## 当前限制
 
