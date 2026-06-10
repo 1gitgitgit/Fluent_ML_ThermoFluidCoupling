@@ -1,0 +1,93 @@
+import gmsh
+import sys
+import numpy as np
+
+gmsh.initialize()
+gmsh.model.add("cylinder_flow_refined")
+
+# ── 几何 + 物理组（同前）────────────────────────────────────
+rect = gmsh.model.occ.addRectangle(0, 0, 0, 2.2, 0.41)
+disk = gmsh.model.occ.addDisk(0.2, 0.2, 0, 0.05, 0.05)
+fluid_entities, _ = gmsh.model.occ.cut([(2, rect)], [(2, disk)])
+gmsh.model.occ.synchronize()
+
+fluid_tag = fluid_entities[0][1]
+boundaries = gmsh.model.getBoundary([(2, fluid_tag)], oriented=False)
+inlet_curves, outlet_curves, wall_curves, cylinder_curves = [], [], [], []
+for dim, tag in boundaries:
+    xmin, ymin, _, xmax, ymax, _ = gmsh.model.getBoundingBox(dim, tag)
+    cx = (xmin + xmax) / 2; cy = (ymin + ymax) / 2
+    if xmax < 1e-6:               inlet_curves.append(tag)
+    elif xmin > 2.2 - 1e-6:      outlet_curves.append(tag)
+    elif abs(cx-0.2)<0.1 and abs(cy-0.2)<0.1 and (xmax-xmin)<0.2:
+                                  cylinder_curves.append(tag)
+    else:                         wall_curves.append(tag)
+
+gmsh.model.addPhysicalGroup(1, inlet_curves,    name="inlet")
+gmsh.model.addPhysicalGroup(1, outlet_curves,   name="outlet")
+gmsh.model.addPhysicalGroup(1, wall_curves,     name="wall")
+gmsh.model.addPhysicalGroup(1, cylinder_curves, name="cylinder")
+gmsh.model.addPhysicalGroup(2, [fluid_tag],     name="fluid")
+
+# ── 网格尺寸控制（Field 方法）────────────────────────────────
+
+# Field 1：Distance —— 计算域内每个点到圆柱曲线的距离
+# 用途：给 Threshold 提供"距圆柱多远"的信息
+dist_field = gmsh.model.mesh.field.add("Distance")
+gmsh.model.mesh.field.setNumbers(dist_field, "CurvesList", cylinder_curves)
+gmsh.model.mesh.field.setNumber(dist_field, "Sampling", 200)  # 曲线采样点数，越多越精确
+
+# Field 2：Threshold —— 根据距离平滑过渡网格尺寸
+# 距离 < DistMin：网格尺寸 = SizeMin（圆柱附近精细）
+# 距离 > DistMax：网格尺寸 = SizeMax（远处粗糙）
+# 中间：线性插值过渡
+thresh_field = gmsh.model.mesh.field.add("Threshold")
+gmsh.model.mesh.field.setNumber(thresh_field, "InField",  dist_field)
+gmsh.model.mesh.field.setNumber(thresh_field, "SizeMin",  0.01)   # 圆柱壁面附近
+gmsh.model.mesh.field.setNumber(thresh_field, "SizeMax",  0.05)   # 远场区域
+gmsh.model.mesh.field.setNumber(thresh_field, "DistMin",  0.02)   # 开始过渡的距离
+gmsh.model.mesh.field.setNumber(thresh_field, "DistMax",  0.15)   # 达到远场尺寸的距离
+
+# 将 Threshold 设为背景网格控制场（激活）
+gmsh.model.mesh.field.setAsBackgroundMesh(thresh_field)
+
+# 禁用其他尺寸控制来源，让 Field 完全接管
+# 否则 Gmsh 还会从几何点坐标、曲率等来源推断尺寸，产生干扰
+gmsh.option.setNumber("Mesh.MeshSizeExtendFromBoundary", 0)
+gmsh.option.setNumber("Mesh.MeshSizeFromPoints",         0)
+gmsh.option.setNumber("Mesh.MeshSizeFromCurvature",      0)
+
+# ── 生成网格 ──────────────────────────────────────────────────
+gmsh.model.mesh.generate(2)
+
+# Netgen 优化：调整节点位置，改善单元形状（减少细长三角形）
+# 优化后 Gamma 最小值通常从 0.3 左右提升到 0.5 以上
+gmsh.model.mesh.optimize("Netgen")
+
+# ── 导出 ──────────────────────────────────────────────────────
+gmsh.option.setNumber("Mesh.MshFileVersion", 2.2)
+gmsh.write("mesh_refined.msh")
+
+# ── 打印网格质量 Gamma 值 ──────────────────────────────────────
+# Gamma = 内切圆半径 / 外接圆半径，越接近 1 越好
+# 三角形：正三角形 Gamma=1，退化为线时 Gamma→0
+elem_types, elem_tags, _ = gmsh.model.mesh.getElements(dim=2)
+all_qualities = []
+for etype, etags in zip(elem_types, elem_tags):
+    q = gmsh.model.mesh.getElementQualities(etags, qualityName="gamma")
+    all_qualities.extend(q)
+
+q = np.array(all_qualities)
+node_tags, _, _ = gmsh.model.mesh.getNodes()
+total_2d = sum(len(t) for t in elem_tags)
+
+print(f"节点总数  ：{len(node_tags)}")
+print(f"二维单元数：{total_2d}")
+print(f"Gamma 质量（越接近 1 越好）：")
+print(f"  最小值 {q.min():.4f}  最大值 {q.max():.4f}  均值 {q.mean():.4f}")
+print(f"  Gamma < 0.3 的劣质单元：{(q < 0.3).sum()} 个")
+
+if "-nopopup" not in sys.argv:
+    gmsh.fltk.run()
+
+gmsh.finalize()
